@@ -3,9 +3,10 @@
 //--------------------------------------------------------------
 void ofApp::setup(){
     ofSetVerticalSync(true);
-    ofBackground(50);
+    ofBackground(0);
+    ofSetLineWidth(2);
     
-    background.load("../../../common/background.png");
+//    background.load("../../../common/background.png");
 
     ofDirectory dir("../../../common/layers/");
     dir.allowExt("png");
@@ -23,32 +24,14 @@ void ofApp::setup(){
     
     posterBounds.set(x, y, w, h);
     
-    gui.setup();
-    
-    groupFixCam.setName("fix cam");
-    groupFixCam.add(fixCamFov.set("fov", 60, 10, 170));
-    groupFixCam.add(fixCamZ.set("z", 1700, 0, 20000));
-    gui.add(groupFixCam);
-    groupMoveCam.setName("move cam");
-    groupMoveCam.add(moveCamNear.set("near", 40, 0.1, 100));
-    groupMoveCam.add(moveCamFar.set("far", 1701, 10, 100000));
-    groupMoveCam.add(moveCamZ.set("z", 1700, 0, 1700));
-    groupMoveCam.add(bUseMouseZ.set("use mouse z", false));
-    gui.add(groupMoveCam);
-    groupMask.setName("mask layers");
-    groupMask.add(layerSeparation.set("separation", 100, 10, 1000));
-    gui.add(groupMask);
-    gui.add(posterScale.set("poster scale", 0.38, 0.01, 3));
-    gui.add(bDrawDebug.set("draw debug", true));
-    
-//    easyCam.setFov(20);
+    initGui();
     
     activeCam = &movingCam;
     
-    camDepth.reset(350);
+    camDepth.reset(-3000);
     camDepth.setCurve(QUADRATIC_EASE_OUT); //camDepth.setCurve(SWIFT_GOOGLE);
     camDepth.setRepeatType(LOOP);
-    camDepth.setDuration(2.0f);
+    camDepth.setDuration(10.0f);
     camDepth.animateTo(1700);
     
     lastTime = ofGetElapsedTimef();
@@ -56,7 +39,29 @@ void ofApp::setup(){
     idleCounter = 0;
     paused = false;
     
-    bDrawGui = true;
+    // poster rect
+    updateBounds();
+    
+    // projector
+    fixedCam.setPosition(0, 0, fixCamZ);
+    fixedCam.setFov(fixCamFov);
+    fixedCam.setNearClip(moveCamNear);
+    fixedCam.setFarClip(moveCamFar);
+    
+    // particles
+    smallParticles.setName("small");
+    mediumParticles.setName("medium");
+    bigParticles.setName("big");
+    particleSystem.add(&smallParticles);
+    particleSystem.add(&mediumParticles);
+    particleSystem.add(&bigParticles);
+    
+    overlapingParticles.setName("overlaping");
+    particleSystemOverlaping.add(&overlapingParticles);
+    
+    refreshScene();
+    
+    smoothZ = 0;
 }
 
 //--------------------------------------------------------------
@@ -66,50 +71,101 @@ void ofApp::update(){
     fixedCam.setNearClip(moveCamNear);
     fixedCam.setFarClip(moveCamFar);
     
+    movingCam.setNearClip(moveCamNear);
     movingCam.setFarClip(moveCamFar);
+//    movingCam.setFov(20);
     
     camDepth.update(1.0f / 60.0f);
     
-    if(!bUseMouseZ){
-        cout << camDepth.getPercentDone() << endl;
-        if (camDepth.getPercentDone() >= 0.994f){
+    if(bDebug){
+        movingCam.enableMouseInput();
+    }else{
+        movingCam.disableMouseInput();
+        if(bAutoAnimate){
+            /*if(camDepth.getPercentDone() >= 0.994f){
+                if(idleCounter > 2){
+                    camDepth.resume();
+                    idleCounter = 0;
+                    paused = false;
+                }else if(!paused){
+                    camDepth.pause();
+                    paused = true;
+                }
+                idleCounter += ofGetLastFrameTime();
+            }*/
+            movingCam.setPosition(0, 0, camDepth);
+        }else{
+            smoothZ += (cameraZ - smoothZ) * 0.1;
             
-            if(idleCounter > 2){
-                camDepth.resume();
-                idleCounter = 0;
-                paused = false;
-            }else if(!paused){
-                camDepth.pause();
-                paused = true;
-            }
-            
-            idleCounter += ofGetLastFrameTime();
+            movingCam.setOrientation(ofVec3f(0,0,0));
+            movingCam.setPosition(0, 0, smoothZ);
         }
-        
-        movingCam.setPosition(0, 0, moveCamZ);
     }
 }
 
 //--------------------------------------------------------------
 void ofApp::draw(){
-    ofEnableDepthTest();
-    
+    ofEnableAlphaBlending();
     activeCam->begin();
     {
-        drawMaskPlanes();
+        particleSystem.draw();
+        
+        if (bDrawMask) {
+            ofEnableDepthTest();
+            drawMaskPlanes();
+            ofDisableDepthTest();
+        }
+        
+        particleSystemOverlaping.draw();
     }
     activeCam->end();
+    ofDisableAlphaBlending();
     
-    ofDisableDepthTest();
-    
-//    cout << " ---- " << endl;
+//    ofPushStyle();
+//    ofNoFill();
+//    ofDrawRectangle(posterBounds);
+//    ofPopStyle();
     
     if (bDrawGui){
-        ofDrawBitmapStringHighlight("layers: " + ofToString(textures.size()), 20, 20);
-        ofDrawBitmapStringHighlight("cam z: " + ofToString(movingCam.getZ()), 20, 40);
-
-        gui.draw();
+        //gui.draw();
+        gui2.draw();
+        gui3.draw();
+        gui4.draw();
     }
+}
+
+//--------------------------------------------------------------
+void ofApp::refreshScene() {    
+    // normal rect
+    smallParticles.reset(posterBounds, fixedCam);
+    smallParticles.colorBase.set(colorBase);
+    smallParticles.colorContrast.set(colorContrast);
+    mediumParticles.reset(posterBounds, fixedCam);
+    mediumParticles.colorBase.set(colorBase);
+    mediumParticles.colorContrast.set(colorContrast);
+    
+    ofRectangle rect;
+    
+    // big rect (bounds are screen edges)
+    rect.set(0, 0, ofGetScreenWidth(), ofGetScreenHeight());
+    bigParticles.reset(rect, fixedCam);
+    bigParticles.colorBase.set(colorBase);
+    bigParticles.colorContrast.set(colorContrast);
+    
+    // rect (bounds are close to silhouette)
+    rect.set(posterBounds.x, posterBounds.y + 200, posterBounds.width, posterBounds.height-400);
+    overlapingParticles.reset(rect, fixedCam);
+    overlapingParticles.colorBase.set(colorBase);
+    overlapingParticles.colorContrast.set(colorContrast);
+}
+
+//--------------------------------------------------------------
+void ofApp::updateBounds() {
+    ofTexture& tex = textures[0];
+    posterBounds.x = (ofGetWidth() / 2) - (tex.getWidth()*posterScale * 0.5);
+    posterBounds.y =  (ofGetHeight() / 2) - (tex.getHeight()*posterScale * 0.5);
+    posterBounds.width = tex.getWidth()*posterScale;
+    posterBounds.height = tex.getHeight()*posterScale;
 }
 
 //--------------------------------------------------------------
@@ -158,14 +214,17 @@ void ofApp::drawMaskPlanes() {
         tex.unbind();
         
         // draw mask
-        if(z == 0 && !bDrawDebug){
+        if(z == 0 && !bDebug){
+            ofPushStyle();
+//            ofSetColor(220, 220, 220);
             ofDrawRectangle(-10000, s_tl.y-1000, s_tl.z, 20000, 1000);
             ofDrawRectangle(-10000, s_bl.y, s_bl.z, 20000, 1000);
             ofDrawRectangle(s_tl.x-10000, s_tl.y, s_tl.z, 10000, s_height);
             ofDrawRectangle(s_tr.x, s_tl.y, s_tl.z, 10000, s_height);
+            ofPopStyle();
         }
         
-        if (bDrawDebug) {
+        if (bDebug) {
             ofPushStyle();
             ofSetColor(ofColor::red);
             ofNoFill();
@@ -203,6 +262,61 @@ void ofApp::drawMaskPlanes() {
 }
 
 //--------------------------------------------------------------
+void ofApp::initGui(){
+    // invisible params
+    fixCamFov.set("fov", 60, 10, 170);
+    fixCamZ.set("z", 1700, 0, 20000);
+    posterScale.set("poster scale", 0.38, 0.01, 3);
+    layerSeparation.set("separation", 100, 10, 1000);
+    
+    // --
+    gui.setup();
+    //    groupFixCam.setName("fix cam");
+    //    groupFixCam.add(fixCamFov.set("fov", 60, 10, 170));
+    //    groupFixCam.add(fixCamZ.set("z", 1700, 0, 20000));
+    //    gui.add(groupFixCam);
+    groupMoveCam.setName("move cam");
+    groupMoveCam.add(moveCamNear.set("near", 40, 0.1, 100));
+    groupMoveCam.add(moveCamFar.set("far", 10000, 10, 100000));
+    gui.add(groupMoveCam);
+    //    groupMask.setName("mask layers");
+    //    groupMask.add(layerSeparation.set("separation", 100, 10, 1000));
+    //    gui.add(groupMask);
+    //    gui.add(posterScale.set("poster scale", 0.38, 0.01, 3));
+    
+    gui2.setDefaultWidth(300);
+    
+    // --
+    gui2.setup();
+    gui2.add(cameraZ.set("camera Z", 1700, -5000, 1700));
+    gui2.add(bAutoAnimate.set("auto animate", false));
+    gui2.add(bDebug.set("debug mode", false));
+    gui2.add(bDrawMask.set("draw mask", false));
+    gui2.setWidthElements(300);
+    
+    // --
+    gui3.setup("scene");
+    gui3.add(btnRefresh.setup("refresh scene"));
+    gui3.add(smallParticles.parameters);
+    gui3.add(mediumParticles.parameters);
+    gui3.add(bigParticles.parameters);
+    gui3.add(overlapingParticles.parameters);
+    gui3.setPosition(10, 130);
+    gui3.minimizeAll();
+    
+    btnRefresh.addListener(this, &ofApp::refreshScene);
+    
+    // --
+    gui4.setup("color");
+    gui4.add(colorBase.set("base", ofColor(127,175,35), ofColor(0,0,0), ofColor(255,255,255)));
+    gui4.add(colorContrast.set("contrast", ofColor(34,102,174), ofColor(0,0,0), ofColor(255,255,255)));
+    gui4.minimizeAll();
+    gui4.setPosition(350, 10);
+    
+    bDrawGui = true;
+}
+
+//--------------------------------------------------------------
 void ofApp::switchCamera() {
     if(activeCam == &fixedCam){
         activeCam = &movingCam;
@@ -217,11 +331,18 @@ void ofApp::keyPressed(int key){
         case 'f':
             ofToggleFullscreen();
             break;
-        case 'c':
-            switchCamera();
-            break;
+//        case 'c':
+//            switchCamera();
+//            break;
         case 'g':
             bDrawGui = !bDrawGui;
+            break;
+        case 'r':
+            refreshScene();
+            break;
+        case ' ':
+            bAutoAnimate = !bAutoAnimate;
+            break;
         default:
             break;
     }
@@ -264,7 +385,7 @@ void ofApp::mouseExited(int x, int y){
 
 //--------------------------------------------------------------
 void ofApp::windowResized(int w, int h){
-
+    updateBounds();
 }
 
 //--------------------------------------------------------------
